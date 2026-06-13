@@ -4,18 +4,13 @@ EcoLoop AI - FastAPI Application Entry Point
 AI-Powered Sustainability Platform for Amazon HackOn 2026.
 """
 
-"""
-EcoLoop AI - FastAPI Application Entry Point
-
-AI-Powered Sustainability Platform for Amazon HackOn 2026.
-"""
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config.settings import get_settings
 from routers.upload import router as upload_router
 from routers.assess import router as assess_router
+from routers.dashboard import router as dashboard_router
 
 settings = get_settings()
 
@@ -37,6 +32,7 @@ app.add_middleware(
 # Register routers
 app.include_router(upload_router)
 app.include_router(assess_router)
+app.include_router(dashboard_router)
 
 
 @app.get("/health")

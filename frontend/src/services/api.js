@@ -56,7 +56,7 @@ export async function assessProduct(data) {
 /**
  * Get or create a session ID stored in localStorage.
  */
-function getSessionId() {
+export function getSessionId() {
   let id = localStorage.getItem('ecoloop_session_id');
   if (!id) {
     id = crypto.randomUUID();

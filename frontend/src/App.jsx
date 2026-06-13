@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
 import UploadPage from './pages/UploadPage';
+import DashboardPage from './pages/DashboardPage';
 
 function App() {
   return (
@@ -11,9 +12,20 @@ function App() {
             <Link to="/" className="flex items-center gap-2">
               <span className="text-2xl font-bold">🌱 EcoLoop AI</span>
             </Link>
-            <p className="text-green-100 text-sm hidden sm:block">
-              AI-Powered Sustainability Platform
-            </p>
+            <nav className="flex items-center gap-4">
+              <Link
+                to="/"
+                className="text-green-100 hover:text-white text-sm font-medium transition-colors"
+              >
+                Assess
+              </Link>
+              <Link
+                to="/dashboard"
+                className="text-green-100 hover:text-white text-sm font-medium transition-colors"
+              >
+                Dashboard
+              </Link>
+            </nav>
           </div>
         </header>
 
@@ -21,6 +33,7 @@ function App() {
         <main className="max-w-5xl mx-auto py-8 px-4">
           <Routes>
             <Route path="/" element={<UploadPage />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
           </Routes>
         </main>
 
