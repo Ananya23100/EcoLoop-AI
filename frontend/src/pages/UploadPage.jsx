@@ -93,9 +93,11 @@ export default function UploadPage({ dashData, onAssessmentComplete }) {
     } catch { setListingStatus('error'); }
   }
 
-  // Compute circularity rate from dashData
+  // Weighted Circularity Score (same formula as Dashboard)
+  const CIRC_WEIGHTS = { resell: 1.0, refurbish: 0.85, donate: 0.70, recycle: 0.30 };
   const totalActions = dashData ? Object.values(dashData.action_distribution || {}).reduce((a, b) => a + b, 0) : 0;
-  const circRate = totalActions > 0 ? Math.round(((dashData.action_distribution?.resell || 0) + (dashData.action_distribution?.refurbish || 0)) / totalActions * 100) : 0;
+  const weightedSum = dashData ? Object.entries(dashData.action_distribution || {}).reduce((sum, [action, count]) => sum + count * (CIRC_WEIGHTS[action] || 0.3), 0) : 0;
+  const circRate = totalActions > 0 ? Math.round((weightedSum / (totalActions * 1.0)) * 100) : 0;
 
   return (
     <div>
@@ -148,7 +150,7 @@ export default function UploadPage({ dashData, onAssessmentComplete }) {
             <SummaryCard icon="🌱" value={dashData?.total_green_credits || 0} label="GREEN CREDITS" sub="Total earned" color="border-l-green-500" trend="↑ 18%" />
             <SummaryCard icon="📦" value={dashData?.total_assessments || 0} label="PRODUCTS ASSESSED" sub="Total scanned" color="border-l-blue-500" trend="↑ 27%" />
             <SummaryCard icon="🌍" value={`${(dashData?.total_co2_saved_kg || 0).toFixed(1)} kg`} label="CO₂ PREVENTED" sub="Carbon saved" color="border-l-emerald-500" trend="↑ 22%" />
-            <SummaryCard icon="🔄" value={`${circRate}%`} label="CIRCULARITY RATE" sub="Resell + Refurbish" color="border-l-orange-500" trend="↑ 16%" />
+            <SummaryCard icon="🔄" value={`${circRate}%`} label="CIRCULARITY RATE" sub="Weighted impact score" color="border-l-orange-500" trend="↑ 16%" />
           </div>
 
           {/* AI Pipeline Visualization */}
@@ -323,6 +325,9 @@ export default function UploadPage({ dashData, onAssessmentComplete }) {
             </div>
           )}
 
+          {/* Marketplace Readiness */}
+          <MarketplaceReadinessCard grade={result.condition_grade} confidence={result.confidence_score} action={result.action_recommendation} />
+
           {/* Marketplace Listing Section — Resell / Refurbish */}
           {(result.action_recommendation === 'resell' || result.action_recommendation === 'refurbish') && (
             <div className="bg-gradient-to-r from-[#0f1b2d] to-[#1a2d47] rounded-2xl p-6 shadow-lg">
@@ -466,6 +471,40 @@ function PipelineArrow() {
   return (
     <div className="hidden md:flex items-center px-1 text-gray-300">
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+    </div>
+  );
+}
+
+function MarketplaceReadinessCard({ grade, confidence, action }) {
+  const readiness = (grade === 'A' || (grade === 'B' && confidence > 80))
+    ? { level: 'High', color: 'bg-green-50 border-green-200 text-green-800', icon: '✅' }
+    : (grade === 'B' || grade === 'C')
+    ? { level: 'Medium', color: 'bg-amber-50 border-amber-200 text-amber-800', icon: '⚡' }
+    : { level: 'Low', color: 'bg-red-50 border-red-200 text-red-800', icon: '⚠️' };
+
+  const checks = [
+    { pass: true, text: 'Condition verified by AI' },
+    { pass: confidence >= 70, text: `Assessment confidence: ${confidence}%` },
+    { pass: ['resell', 'refurbish'].includes(action), text: 'Suitable for marketplace listing' },
+    { pass: grade !== 'D', text: 'Meets minimum quality threshold' },
+  ];
+
+  return (
+    <div className={`border rounded-2xl p-5 shadow-sm ${readiness.color}`}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">{readiness.icon}</span>
+          <h3 className="text-sm font-bold uppercase tracking-wide">Marketplace Readiness</h3>
+        </div>
+        <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-white/60 border">{readiness.level}</span>
+      </div>
+      <div className="space-y-1.5">
+        {checks.map((c, i) => (
+          <p key={i} className="text-[11px] flex items-center gap-2">
+            <span>{c.pass ? '✓' : '✗'}</span> {c.text}
+          </p>
+        ))}
+      </div>
     </div>
   );
 }

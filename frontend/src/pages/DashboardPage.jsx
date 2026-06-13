@@ -47,11 +47,19 @@ export default function DashboardPage() {
   const actionDist = data.action_distribution || {};
   const totalActions = Object.values(actionDist).reduce((a, b) => a + b, 0);
 
-  // Circularity Rate: (resell + refurbish) / total_actions
-  // Source: UserMetrics.action_counts — same dataset as total_assessments
-  const circRate = totalActions > 0
-    ? Math.round(((actionDist.resell || 0) + (actionDist.refurbish || 0)) / totalActions * 100)
-    : 0;
+  // Weighted Circularity Score
+  // Each action contributes differently to sustainability impact:
+  //   Resell     = 1.0 (full lifecycle extension, product stays in commerce)
+  //   Refurbish  = 0.85 (high impact — restores value and extends life)
+  //   Donate     = 0.70 (good impact — extends use but no value recovery)
+  //   Recycle    = 0.30 (minimal — materials recovered but product destroyed)
+  //
+  // Formula: sum(action_count × weight) / sum(action_count × max_weight) × 100
+  // This produces a 0-100% score where 100% = all products resold
+  const CIRC_WEIGHTS = { resell: 1.0, refurbish: 0.85, donate: 0.70, recycle: 0.30 };
+  const weightedSum = Object.entries(actionDist).reduce((sum, [action, count]) => sum + count * (CIRC_WEIGHTS[action] || 0.3), 0);
+  const maxPossible = totalActions * 1.0; // maximum if all were resold
+  const circRate = totalActions > 0 ? Math.round((weightedSum / maxPossible) * 100) : 0;
 
   // Category Breakdown: derived from recent_assessments (max 10 items)
   // NOTE: This represents a SAMPLE of the most recent assessments, not the full history.
@@ -70,8 +78,48 @@ export default function DashboardPage() {
         <ExecCard icon="🌱" value={data.total_green_credits} label="GREEN CREDITS" sub="Total earned (all time)" color="border-l-green-500" />
         <ExecCard icon="📦" value={data.total_assessments} label="PRODUCTS ASSESSED" sub="Total scanned (all time)" color="border-l-blue-500" />
         <ExecCard icon="🌍" value={`${data.total_co2_saved_kg.toFixed(1)} kg`} label="CO₂ PREVENTED" sub="Carbon saved (all time)" color="border-l-emerald-500" />
-        <ExecCard icon="🔄" value={`${circRate}%`} label="CIRCULARITY RATE" sub="Resell + Refurbish" color="border-l-orange-500" />
+        <ExecCard icon="🔄" value={`${circRate}%`} label="CIRCULARITY RATE" sub="Weighted impact score" color="border-l-orange-500" />
       </div>
+
+      {/* My Circular Actions */}
+      {totalActions > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
+          <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">My Circular Actions</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <CircularActionCard icon="🏷️" label="Resold" count={actionDist.resell || 0} color="bg-blue-50 border-blue-200 text-blue-800" />
+            <CircularActionCard icon="🔧" label="Refurbished" count={actionDist.refurbish || 0} color="bg-amber-50 border-amber-200 text-amber-800" />
+            <CircularActionCard icon="🎁" label="Donated" count={actionDist.donate || 0} color="bg-pink-50 border-pink-200 text-pink-800" />
+            <CircularActionCard icon="♻️" label="Recycled" count={actionDist.recycle || 0} color="bg-emerald-50 border-emerald-200 text-emerald-800" />
+          </div>
+        </div>
+      )}
+
+      {/* Sustainability Profile */}
+      {data.total_assessments > 0 && (
+        <SustainabilityProfile
+          credits={data.total_green_credits}
+          assessments={data.total_assessments}
+          circRate={circRate}
+          actionDist={actionDist}
+          categoryDist={categoryDist}
+        />
+      )}
+
+      {/* AI Pipeline Impact */}
+      {data.total_assessments > 0 && (
+        <div className="bg-gradient-to-br from-[#0f1b2d] to-[#1a2d47] rounded-2xl p-6 shadow-lg text-white">
+          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">🤖 AI Pipeline Impact</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+            <PipelineImpactStat value={data.total_assessments} label="Analyzed" />
+            <PipelineImpactStat value={data.total_green_credits} label="Credits" />
+            <PipelineImpactStat value={`${data.total_co2_saved_kg.toFixed(1)}`} label="kg CO₂" />
+            <PipelineImpactStat value={actionDist.resell || 0} label="Resell" />
+            <PipelineImpactStat value={actionDist.refurbish || 0} label="Refurbish" />
+            <PipelineImpactStat value={actionDist.donate || 0} label="Donate" />
+            <PipelineImpactStat value={actionDist.recycle || 0} label="Recycle" />
+          </div>
+        </div>
+      )}
 
       {/* Middle Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -427,6 +475,106 @@ function CO2LineChart({ assessments }) {
         <span className="text-[10px] text-gray-400">Cumulative from {sorted.length} assessments</span>
         <span className="text-xs font-bold text-green-700">↑ {cumulative.toFixed(1)} kg total</span>
       </div>
+    </div>
+  );
+}
+
+function CircularActionCard({ icon, label, count, color }) {
+  return (
+    <div className={`rounded-xl border p-4 text-center ${color}`}>
+      <span className="text-2xl block">{icon}</span>
+      <p className="text-2xl font-bold mt-1">{count}</p>
+      <p className="text-[10px] font-medium mt-0.5">{label}</p>
+    </div>
+  );
+}
+
+function PipelineImpactStat({ value, label }) {
+  return (
+    <div className="text-center">
+      <p className="text-lg font-bold text-[#f59e0b]">{value}</p>
+      <p className="text-[10px] text-gray-400">{label}</p>
+    </div>
+  );
+}
+
+function SustainabilityProfile({ credits, assessments, circRate, actionDist, categoryDist }) {
+  // Tier calculation
+  const tier = credits > 600
+    ? { name: 'Circularity Leader', icon: '🏆', color: 'from-yellow-400 to-amber-500', badge: 'bg-yellow-100 text-yellow-800 border-yellow-300' }
+    : credits > 300
+    ? { name: 'Eco Champion', icon: '🥇', color: 'from-green-400 to-emerald-500', badge: 'bg-green-100 text-green-800 border-green-300' }
+    : credits > 100
+    ? { name: 'Eco Advocate', icon: '🌿', color: 'from-teal-400 to-cyan-500', badge: 'bg-teal-100 text-teal-800 border-teal-300' }
+    : { name: 'Eco Starter', icon: '🌱', color: 'from-gray-400 to-gray-500', badge: 'bg-gray-100 text-gray-700 border-gray-300' };
+
+  // Most frequent action
+  const topAction = Object.entries(actionDist).sort(([,a],[,b]) => b - a)[0];
+  const topActionLabel = topAction ? topAction[0] : 'None';
+
+  // Most assessed category
+  const topCategory = Object.entries(categoryDist).sort(([,a],[,b]) => b - a)[0];
+  const topCategoryLabel = topCategory ? topCategory[0] : 'N/A';
+
+  // Progress to next tier
+  const nextTierCredits = credits > 600 ? null : credits > 300 ? 600 : credits > 100 ? 300 : 100;
+  const remaining = nextTierCredits ? nextTierCredits - credits : 0;
+  const progressPct = nextTierCredits ? Math.min(100, (credits / nextTierCredits) * 100) : 100;
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+      {/* Header with gradient */}
+      <div className={`bg-gradient-to-r ${tier.color} p-5 text-white`}>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest opacity-80">Your Sustainability Profile</p>
+            <div className="flex items-center gap-2 mt-2">
+              <span className="text-3xl">{tier.icon}</span>
+              <p className="text-xl font-bold">{tier.name}</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-3xl font-bold">{credits}</p>
+            <p className="text-xs opacity-80">Green Credits</p>
+          </div>
+        </div>
+        {/* Progress bar to next tier */}
+        {nextTierCredits && (
+          <div className="mt-4">
+            <div className="flex justify-between text-[10px] opacity-80 mb-1">
+              <span>{credits} credits</span>
+              <span>{remaining} credits to next tier</span>
+            </div>
+            <div className="w-full bg-white/30 rounded-full h-2">
+              <div className="h-full bg-white rounded-full transition-all" style={{ width: `${progressPct}%` }} />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Profile Stats */}
+      <div className="p-5">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+          <ProfileStat label="Products Assessed" value={assessments} />
+          <ProfileStat label="Circularity Score" value={`${circRate}%`} />
+          <ProfileStat label="Top Category" value={topCategoryLabel} />
+          <ProfileStat label="Top Action" value={topActionLabel} />
+        </div>
+
+        {/* Explanation */}
+        <p className="text-[10px] text-gray-400 leading-relaxed border-t border-gray-100 pt-3">
+          This profile is generated from your assessment activity and is used to personalize marketplace recommendations.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function ProfileStat({ label, value }) {
+  return (
+    <div className="text-center">
+      <p className="text-sm font-bold text-gray-800 capitalize">{value}</p>
+      <p className="text-[10px] text-gray-400">{label}</p>
     </div>
   );
 }
