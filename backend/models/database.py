@@ -99,7 +99,7 @@ async def save_assessment(
 
 async def update_user_metrics(
     user_session_id: str,
-    action: ActionRecommendation,
+    action,  # ActionRecommendation enum or str
     green_credits: int,
     co2_savings_kg: float,
 ) -> None:
@@ -145,7 +145,7 @@ async def update_user_metrics(
                 "action_counts.#action :one"
             ),
             ExpressionAttributeNames={
-                "#action": action.value,
+                "#action": action.value if hasattr(action, 'value') else str(action),
             },
             ExpressionAttributeValues={
                 ":credits": green_credits,
@@ -153,7 +153,7 @@ async def update_user_metrics(
                 ":co2": _to_decimal(co2_savings_kg),
             },
         )
-        print(f"[INFO] UserMetrics updated for session={user_session_id}, action={action.value}, credits={green_credits}")
+        print(f"[INFO] UserMetrics updated for session={user_session_id}, action={action.value if hasattr(action, 'value') else action}, credits={green_credits}")
     except (BotoCoreError, ClientError) as e:
         # Log the full error for debugging
         print(f"[ERROR] Failed to update user metrics for session={user_session_id}: {type(e).__name__}: {e}")

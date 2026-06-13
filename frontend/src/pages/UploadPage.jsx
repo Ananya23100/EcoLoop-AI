@@ -23,7 +23,11 @@ export default function UploadPage({ dashData, onAssessmentComplete }) {
   const [result, setResult] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [imageKey, setImageKey] = useState(null);
-  const [listingStatus, setListingStatus] = useState(null); // null | 'publishing' | 'success' | 'error'
+  const [listingStatus, setListingStatus] = useState(null);
+  const [altListingStatus, setAltListingStatus] = useState(null);
+  const [exchangeCategory, setExchangeCategory] = useState('');
+  const [exchangeDesc, setExchangeDesc] = useState('');
+  const [showExchangeModal, setShowExchangeModal] = useState(false);
   const navigate = useNavigate();
 
   function handleFileChange(e) {
@@ -37,7 +41,9 @@ export default function UploadPage({ dashData, onAssessmentComplete }) {
   }
   function resetForm() {
     setFile(null); setPreview(null); setCategory(''); setAgeMonths(''); setPrice('');
-    setResult(null); setError(null); setShowForm(false); setImageKey(null); setListingStatus(null);
+    setResult(null); setError(null); setShowForm(false); setImageKey(null);
+    setListingStatus(null); setAltListingStatus(null); setExchangeCategory('');
+    setExchangeDesc(''); setShowExchangeModal(false);
   }
 
   async function handleSubmit(e) {
@@ -64,6 +70,7 @@ export default function UploadPage({ dashData, onAssessmentComplete }) {
     if (!result || !imageKey) return;
     const listingType = result.action_recommendation === 'resell' ? 'resale'
       : result.action_recommendation === 'refurbish' ? 'refurbished'
+      : result.action_recommendation === 'recycle' ? 'recycling'
       : 'donation';
     setListingStatus('publishing');
     try {
@@ -93,8 +100,77 @@ export default function UploadPage({ dashData, onAssessmentComplete }) {
     } catch { setListingStatus('error'); }
   }
 
+  async function handleAlternativeListing(altType) {
+    if (!result || !imageKey) return;
+    if (altType === 'exchange') {
+      setShowExchangeModal(true);
+      return;
+    }
+    setAltListingStatus('publishing');
+    try {
+      const snapshot = {
+        condition_grade: result.condition_grade,
+        confidence_score: result.confidence_score,
+        grade_explanation: result.grade_explanation,
+        action_recommendation: result.action_recommendation,
+        action_reasoning: result.action_reasoning,
+        resale_value: result.resale_value,
+        green_credits: result.green_credits,
+        co2_savings_kg: result.co2_savings_kg,
+        buyer_personas: result.buyer_personas || [],
+      };
+      const res = await fetch('/api/listings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-session-id': getSessionId() },
+        body: JSON.stringify({
+          assessment_id: result.assessment_id,
+          image_key: imageKey,
+          product_category: category,
+          listing_type: altType,
+          assessment_snapshot: snapshot,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      setAltListingStatus('success');
+    } catch { setAltListingStatus('error'); }
+  }
+
+  async function handleExchangeSubmit() {
+    if (!exchangeCategory) return;
+    setShowExchangeModal(false);
+    setAltListingStatus('publishing');
+    try {
+      const snapshot = {
+        condition_grade: result.condition_grade,
+        confidence_score: result.confidence_score,
+        grade_explanation: result.grade_explanation,
+        action_recommendation: result.action_recommendation,
+        action_reasoning: result.action_reasoning,
+        resale_value: result.resale_value,
+        green_credits: result.green_credits,
+        co2_savings_kg: result.co2_savings_kg,
+        buyer_personas: result.buyer_personas || [],
+        wanted_category: exchangeCategory,
+        wanted_description: exchangeDesc,
+      };
+      const res = await fetch('/api/listings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-session-id': getSessionId() },
+        body: JSON.stringify({
+          assessment_id: result.assessment_id,
+          image_key: imageKey,
+          product_category: category,
+          listing_type: 'exchange',
+          assessment_snapshot: snapshot,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      setAltListingStatus('success');
+    } catch { setAltListingStatus('error'); }
+  }
+
   // Weighted Circularity Score (same formula as Dashboard)
-  const CIRC_WEIGHTS = { resell: 1.0, refurbish: 0.85, donate: 0.70, recycle: 0.30 };
+  const CIRC_WEIGHTS = { resell: 1.0, refurbish: 0.85, exchange: 1.0, donate: 0.70, recycle: 0.30 };
   const totalActions = dashData ? Object.values(dashData.action_distribution || {}).reduce((a, b) => a + b, 0) : 0;
   const weightedSum = dashData ? Object.entries(dashData.action_distribution || {}).reduce((sum, [action, count]) => sum + count * (CIRC_WEIGHTS[action] || 0.3), 0) : 0;
   const circRate = totalActions > 0 ? Math.round((weightedSum / (totalActions * 1.0)) * 100) : 0;
@@ -411,6 +487,74 @@ export default function UploadPage({ dashData, onAssessmentComplete }) {
               )}
             </div>
           )}
+
+          {/* Recycle Listing Section */}
+          {result.action_recommendation === 'recycle' && (
+            <div className="bg-gradient-to-r from-teal-600 to-emerald-700 rounded-2xl p-6 shadow-lg">
+              {listingStatus === 'success' ? (
+                <div className="text-center py-4">
+                  <span className="text-4xl block mb-3">♻️</span>
+                  <p className="text-white font-bold text-lg">Recycling Listed!</p>
+                  <p className="text-teal-200 text-sm mt-1">Your item will be routed to certified recycling partners</p>
+                  <div className="flex items-center justify-center gap-3 mt-5">
+                    <button onClick={() => navigate('/marketplace')} className="bg-white hover:bg-gray-100 text-teal-700 font-bold px-5 py-2.5 rounded-xl text-sm transition-all">View Marketplace</button>
+                    <button onClick={resetForm} className="bg-white/10 hover:bg-white/20 text-white font-medium px-5 py-2.5 rounded-xl text-sm border border-white/20 transition-all">Continue</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-white font-bold">♻️ List for Recycling</p>
+                    <p className="text-teal-200 text-xs mt-1">Recover materials through certified recycling partners</p>
+                  </div>
+                  <button onClick={handlePublishListing} disabled={listingStatus === 'publishing'} className="bg-white hover:bg-gray-100 text-teal-700 font-bold px-5 py-2.5 rounded-xl text-sm transition-all disabled:opacity-50">
+                    {listingStatus === 'publishing' ? 'Publishing...' : '♻️ List for Recycling'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Alternative Circular Paths */}
+          {listingStatus !== 'success' && (
+            <AlternativeCircularPaths
+              action={result.action_recommendation}
+              onSelect={(altType) => handleAlternativeListing(altType)}
+              altListingStatus={altListingStatus}
+            />
+          )}
+
+          {/* Exchange Modal */}
+          {showExchangeModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setShowExchangeModal(false)}>
+              <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+              <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-lg font-bold text-gray-900 mb-1">🔄 Create Exchange Listing</h3>
+                <p className="text-xs text-gray-500 mb-4">What would you like in exchange for your {category}?</p>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Wanted Category *</label>
+                    <select value={exchangeCategory} onChange={(e) => setExchangeCategory(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500">
+                      <option value="">Select what you want...</option>
+                      {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Description (optional)</label>
+                    <input type="text" value={exchangeDesc} onChange={(e) => setExchangeDesc(e.target.value)} placeholder='e.g. "Looking for study chair"' className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                  <div className="flex gap-3 pt-2">
+                    <button onClick={handleExchangeSubmit} disabled={!exchangeCategory} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-xl text-sm transition-all disabled:bg-gray-300 disabled:cursor-not-allowed">
+                      🔄 List for Exchange
+                    </button>
+                    <button onClick={() => setShowExchangeModal(false)} className="px-4 py-2.5 text-sm text-gray-500 hover:text-gray-700 font-medium">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -505,6 +649,55 @@ function MarketplaceReadinessCard({ grade, confidence, action }) {
           </p>
         ))}
       </div>
+    </div>
+  );
+}
+
+function AlternativeCircularPaths({ action, onSelect, altListingStatus }) {
+  const alternatives = {
+    resell: ['exchange'],
+    refurbish: ['exchange', 'donation'],
+    donate: ['exchange'],
+    recycle: ['exchange'],
+  };
+  const paths = alternatives[action] || ['exchange'];
+
+  const pathConfig = {
+    exchange: { icon: '🔄', label: 'Exchange', desc: 'Swap for something you need', color: 'border-indigo-200 bg-indigo-50 hover:bg-indigo-100' },
+    donation: { icon: '❤️', label: 'Donate', desc: 'Give to community partners', color: 'border-pink-200 bg-pink-50 hover:bg-pink-100' },
+    recycling: { icon: '♻️', label: 'Recycle', desc: 'Recover materials responsibly', color: 'border-teal-200 bg-teal-50 hover:bg-teal-100' },
+  };
+
+  if (altListingStatus === 'success') {
+    return (
+      <div className="bg-green-50 border border-green-200 rounded-2xl p-5 text-center">
+        <span className="text-2xl block mb-2">✅</span>
+        <p className="text-sm font-bold text-green-800">Alternative listing created!</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-gray-50 border border-gray-200 rounded-2xl p-5">
+      <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Alternative Circular Paths</p>
+      <div className="flex flex-wrap gap-3">
+        {paths.map((path) => {
+          const cfg = pathConfig[path];
+          if (!cfg) return null;
+          return (
+            <button
+              key={path}
+              onClick={() => onSelect(path)}
+              disabled={altListingStatus === 'publishing'}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-all ${cfg.color} disabled:opacity-50`}
+            >
+              <span>{cfg.icon}</span>
+              <span>{cfg.label}</span>
+            </button>
+          );
+        })}
+      </div>
+      {altListingStatus === 'error' && <p className="text-red-500 text-xs mt-2">Failed to create listing.</p>}
     </div>
   );
 }

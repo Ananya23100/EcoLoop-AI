@@ -6,6 +6,7 @@ const ACTION_CONFIG = {
   refurbish: { color: '#f59e0b', badge: 'bg-amber-100 text-amber-800', icon: '🔧', label: 'Refurbish' },
   donate: { color: '#a855f7', badge: 'bg-purple-100 text-purple-800', icon: '🎁', label: 'Donate' },
   recycle: { color: '#22c55e', badge: 'bg-emerald-100 text-emerald-800', icon: '♻️', label: 'Recycle' },
+  exchange: { color: '#6366f1', badge: 'bg-indigo-100 text-indigo-800', icon: '🔄', label: 'Exchange' },
 };
 
 const GRADE_CONFIG = {
@@ -56,7 +57,7 @@ export default function DashboardPage() {
   //
   // Formula: sum(action_count × weight) / sum(action_count × max_weight) × 100
   // This produces a 0-100% score where 100% = all products resold
-  const CIRC_WEIGHTS = { resell: 1.0, refurbish: 0.85, donate: 0.70, recycle: 0.30 };
+  const CIRC_WEIGHTS = { resell: 1.0, refurbish: 0.85, exchange: 1.0, donate: 0.70, recycle: 0.30 };
   const weightedSum = Object.entries(actionDist).reduce((sum, [action, count]) => sum + count * (CIRC_WEIGHTS[action] || 0.3), 0);
   const maxPossible = totalActions * 1.0; // maximum if all were resold
   const circRate = totalActions > 0 ? Math.round((weightedSum / maxPossible) * 100) : 0;
@@ -85,10 +86,11 @@ export default function DashboardPage() {
       {totalActions > 0 && (
         <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
           <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">My Circular Actions</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
             <CircularActionCard icon="🏷️" label="Resold" count={actionDist.resell || 0} color="bg-blue-50 border-blue-200 text-blue-800" />
             <CircularActionCard icon="🔧" label="Refurbished" count={actionDist.refurbish || 0} color="bg-amber-50 border-amber-200 text-amber-800" />
             <CircularActionCard icon="🎁" label="Donated" count={actionDist.donate || 0} color="bg-pink-50 border-pink-200 text-pink-800" />
+            <CircularActionCard icon="🔄" label="Exchanged" count={actionDist.exchange || 0} color="bg-indigo-50 border-indigo-200 text-indigo-800" />
             <CircularActionCard icon="♻️" label="Recycled" count={actionDist.recycle || 0} color="bg-emerald-50 border-emerald-200 text-emerald-800" />
           </div>
         </div>
@@ -116,6 +118,7 @@ export default function DashboardPage() {
             <PipelineImpactStat value={actionDist.resell || 0} label="Resell" />
             <PipelineImpactStat value={actionDist.refurbish || 0} label="Refurbish" />
             <PipelineImpactStat value={actionDist.donate || 0} label="Donate" />
+            <PipelineImpactStat value={actionDist.exchange || 0} label="Exchange" />
             <PipelineImpactStat value={actionDist.recycle || 0} label="Recycle" />
           </div>
         </div>

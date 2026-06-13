@@ -35,6 +35,8 @@ class AssessmentSnapshot(BaseModel):
     green_credits: int
     co2_savings_kg: float
     buyer_personas: list[dict] = Field(default_factory=list)
+    wanted_category: str = ""
+    wanted_description: str = ""
 
 
 class CreateListingRequest(BaseModel):
@@ -150,3 +152,174 @@ async def browse_listings(listing_type: Optional[str] = None):
     """Browse the EcoLoop marketplace."""
     listings = await get_listings(listing_type=listing_type)
     return ListingsResponse(listings=listings, total=len(listings))
+
+
+# ---------------------------------------------------------------------------
+# Purchase Confidence Explanation
+# ---------------------------------------------------------------------------
+
+from services.purchase_confidence_explainer import generate_explanation
+
+
+class ExplainRequest(BaseModel):
+    """Request body for purchase confidence explanation."""
+    listing_id: str
+    condition_grade: str
+    confidence_score: int
+    purchase_confidence: int
+    return_risk: str
+    listing_type: str
+    product_category: str
+    green_credits: int = 0
+    co2_saved: float = 0.0
+    top_category: str = ""
+    top_action: str = ""
+
+
+class ExplainResponse(BaseModel):
+    """AI-generated explanation for the purchase confidence score."""
+    explanation: str
+
+
+@router.post(
+    "/listings/explain",
+    response_model=ExplainResponse,
+    summary="Generate AI explanation for Purchase Confidence",
+    description="Uses Amazon Bedrock to explain WHY a listing received its confidence score. Cached per listing+profile.",
+)
+async def explain_purchase_confidence(request: ExplainRequest):
+    """Generate a natural-language explanation for the buyer."""
+    explanation = await generate_explanation(
+        listing_id=request.listing_id,
+        condition_grade=request.condition_grade,
+        confidence_score=request.confidence_score,
+        purchase_confidence=request.purchase_confidence,
+        return_risk=request.return_risk,
+        listing_type=request.listing_type,
+        product_category=request.product_category,
+        green_credits=request.green_credits,
+        co2_saved=request.co2_saved,
+        top_category=request.top_category,
+        top_action=request.top_action,
+    )
+    return ExplainResponse(explanation=explanation)
+
+
+# ---------------------------------------------------------------------------
+# Exchange Completion
+# ---------------------------------------------------------------------------
+
+from models.database import update_user_metrics
+from models.schemas import ActionRecommendation
+
+
+class ExchangeCompleteRequest(BaseModel):
+    """Request to schedule a perfect match exchange between two listings."""
+    listing_id_a: str = Field(..., description="First listing (the one being viewed)")
+    listing_id_b: str = Field(..., description="Second listing (the perfect match)")
+
+
+class ExchangeCompleteResponse(BaseModel):
+    """Response after exchange is scheduled."""
+    success: bool
+    green_credits: int
+    co2_savings_kg: float
+    products_diverted: int
+    message: str
+
+
+@router.post(
+    "/exchange/complete",
+    response_model=ExchangeCompleteResponse,
+    summary="Schedule a perfect match exchange",
+    description="Marks both listings as 'scheduled', creates an exchange record, updates sustainability metrics.",
+)
+async def complete_exchange(
+    request: ExchangeCompleteRequest,
+    x_session_id: Optional[str] = Header(default="anonymous"),
+):
+    """Schedule a perfect match exchange between two listings."""
+    from config.aws import get_listings_table
+    from decimal import Decimal
+
+    table = get_listings_table()
+
+    # Fetch both listings
+    resp_a = table.get_item(Key={"listing_id": request.listing_id_a})
+    resp_b = table.get_item(Key={"listing_id": request.listing_id_b})
+    listing_a = resp_a.get("Item")
+    listing_b = resp_b.get("Item")
+
+    if not listing_a or not listing_b:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail={"error": "listing_not_found", "message": "One or both listings not found."})
+
+    # Mark both as scheduled
+    for lid in [request.listing_id_a, request.listing_id_b]:
+        table.update_item(
+            Key={"listing_id": lid},
+            UpdateExpression="SET #s = :scheduled",
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={":scheduled": "scheduled"},
+        )
+
+    # Calculate combined sustainability impact
+    snap_a = listing_a.get("assessment_snapshot", {})
+    snap_b = listing_b.get("assessment_snapshot", {})
+    credits_a = int(snap_a.get("green_credits", 5))
+    credits_b = int(snap_b.get("green_credits", 5))
+    co2_a = float(snap_a.get("co2_savings_kg", Decimal("1.5")))
+    co2_b = float(snap_b.get("co2_savings_kg", Decimal("1.5")))
+    total_credits = credits_a + credits_b
+    total_co2 = co2_a + co2_b
+
+    # Update user metrics
+    try:
+        await update_user_metrics(
+            user_session_id=x_session_id,
+            action="exchange",
+            green_credits=total_credits,
+            co2_savings_kg=total_co2,
+        )
+    except Exception:
+        pass
+
+    # Write exchange record to Assessments table so it appears in Recent Assessments
+    from config.aws import get_assessments_table
+    from models.database import generate_assessment_id
+    from datetime import datetime, timezone
+
+    cat_a = listing_a.get("product_category", "")
+    cat_b = listing_b.get("product_category", "")
+
+    try:
+        assessments_table = get_assessments_table()
+        assessments_table.put_item(Item={
+            "assessment_id": generate_assessment_id(),
+            "user_session_id": x_session_id,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "image_key": listing_a.get("image_key", ""),
+            "product_category": f"{cat_a} ↔ {cat_b}",
+            "product_age_months": 0,
+            "original_price": Decimal("0"),
+            "condition_grade": listing_a.get("condition_grade", "B"),
+            "confidence_score": 100,
+            "grade_explanation": f"Exchange scheduled between {cat_a} and {cat_b}.",
+            "action_recommendation": "exchange",
+            "action_reasoning": "Perfect match exchange — both products stay in circular use.",
+            "resale_value_min": Decimal("0"),
+            "resale_value_max": Decimal("0"),
+            "green_credits": total_credits,
+            "co2_savings_kg": Decimal(str(total_co2)),
+            "buyer_personas": [],
+        })
+    except Exception:
+        pass  # Non-blocking
+
+    return ExchangeCompleteResponse(
+        success=True,
+        green_credits=total_credits,
+        co2_savings_kg=total_co2,
+        products_diverted=2,
+        message=f"Exchange scheduled: {cat_a} ↔ {cat_b}. Both products stay in circular use.",
+    )
