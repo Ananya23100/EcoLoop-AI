@@ -1,0 +1,1 @@
+# GET /api/dashboard route
