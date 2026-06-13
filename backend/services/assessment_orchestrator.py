@@ -22,6 +22,7 @@ from models.schemas import (
 from models.database import generate_assessment_id
 from agents.vision_agent import vision_agent, VisionResult
 from agents.valuation_agent import valuation_agent, ValuationResult
+from agents.decision_agent import decision_agent, DecisionResult
 
 logger = logging.getLogger("ecoloop.orchestrator")
 
@@ -92,26 +93,39 @@ class AssessmentOrchestrator:
         )
 
         # =====================================================================
-        # Step 3: Decision Agent (deterministic placeholder)
+        # Step 3: Decision Agent (REAL — rule-based + Bedrock reasoning)
         # =====================================================================
-        logger.info("[ORCHESTRATOR] Step 3: Decision Agent (deterministic)...")
-        action, reasoning = self._determine_action(
-            vision_result, valuation_result, request
+        logger.info("[ORCHESTRATOR] Step 3: Invoking Decision Agent...")
+        decision_result = await decision_agent.decide(
+            condition_grade=vision_result.condition_grade,
+            confidence_score=vision_result.confidence_score,
+            valuation=valuation_result,
+            product_category=request.product_category.value,
+            product_age_months=request.product_age_months,
+            original_price=request.original_price,
         )
-        logger.info(f"[ORCHESTRATOR] Action: {action.value}")
+        logger.info(
+            f"[ORCHESTRATOR] Decision Agent complete: "
+            f"action={decision_result.action}, "
+            f"reasoning_words={len(decision_result.reasoning.split())}"
+        )
+        print(
+            f"[ORCHESTRATOR] DecisionResult: action={decision_result.action}, "
+            f"reasoning={decision_result.reasoning[:80]}..."
+        )
 
         # =====================================================================
         # Step 4: Sustainability Agent (deterministic placeholder)
         # =====================================================================
         logger.info("[ORCHESTRATOR] Step 4: Sustainability Agent (deterministic)...")
-        green_credits, co2_savings = self._compute_sustainability(action)
+        green_credits, co2_savings = self._compute_sustainability(decision_result.action)
         logger.info(f"[ORCHESTRATOR] Credits: {green_credits}, CO2: {co2_savings}kg")
 
         # =====================================================================
         # Step 5: Buyer Matching Agent (deterministic placeholder)
         # =====================================================================
         logger.info("[ORCHESTRATOR] Step 5: Buyer Matching Agent (deterministic)...")
-        buyer_personas = self._generate_buyer_personas(action, request)
+        buyer_personas = self._generate_buyer_personas(decision_result.action, request)
 
         # =====================================================================
         # Assemble final response
@@ -123,8 +137,8 @@ class AssessmentOrchestrator:
             condition_grade=vision_result.condition_grade,
             confidence_score=vision_result.confidence_score,
             grade_explanation=vision_result.explanation,
-            action_recommendation=action,
-            action_reasoning=reasoning,
+            action_recommendation=decision_result.action,
+            action_reasoning=decision_result.reasoning,
             resale_value=ResaleValue(
                 min=valuation_result.resale_min,
                 max=valuation_result.resale_max,
@@ -139,46 +153,20 @@ class AssessmentOrchestrator:
     # Placeholder agent logic (to be replaced by real agent modules)
     # =========================================================================
 
-    def _determine_action(
-        self, vision: VisionResult, valuation: ValuationResult, request: AssessmentRequest
-    ) -> tuple[ActionRecommendation, str]:
-        """Decision Agent placeholder — rule-based action selection."""
-        grade = vision.condition_grade
-        resale_value = valuation.base_value
-        threshold_20 = request.original_price * 0.20
-        threshold_05 = request.original_price * 0.05
-
-        if grade in ("A", "B") and resale_value > threshold_20:
-            action = ActionRecommendation.RESELL
-        elif grade in ("B", "C") and resale_value > threshold_05:
-            action = ActionRecommendation.REFURBISH
-        elif grade in ("C", "D") and resale_value > threshold_05:
-            action = ActionRecommendation.DONATE
-        else:
-            action = ActionRecommendation.RECYCLE
-
-        reasoning = (
-            f"With condition grade {grade} and estimated resale value of "
-            f"${resale_value:.0f}, the optimal action is to {action.value}. "
-            f"This maximizes sustainability impact for this {request.product_category.value} product."
-        )
-
-        return action, reasoning
-
     def _compute_sustainability(
-        self, action: ActionRecommendation
+        self, action: str
     ) -> tuple[int, float]:
         """Sustainability Agent placeholder — fixed credit/CO2 values."""
         CREDITS = {"resell": 10, "refurbish": 15, "donate": 20, "recycle": 5}
         CO2 = {"resell": 2.5, "refurbish": 1.8, "donate": 1.5, "recycle": 0.8}
 
-        return CREDITS[action.value], CO2[action.value]
+        return CREDITS.get(action, 5), CO2.get(action, 0.8)
 
     def _generate_buyer_personas(
-        self, action: ActionRecommendation, request: AssessmentRequest
+        self, action: str, request: AssessmentRequest
     ) -> list[BuyerPersona]:
         """Buyer Matching Agent placeholder — only for resell."""
-        if action != ActionRecommendation.RESELL:
+        if action != "resell":
             return []
 
         category = request.product_category.value
