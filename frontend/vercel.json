@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "https://ecoloop-ai-y572.onrender.com/api/$1"
+    }
+  ]
+}
