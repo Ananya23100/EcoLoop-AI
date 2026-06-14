@@ -2,6 +2,8 @@
 EcoLoop AI - Assessment Router
 
 POST /api/assess - Run the agentic assessment pipeline on a product.
+         Supports both image and video uploads.
+         For videos, frames are extracted and passed through the image pipeline.
 """
 
 from fastapi import APIRouter, Header, HTTPException
@@ -14,8 +16,23 @@ from models.schemas import (
 )
 from models.database import save_assessment, update_user_metrics
 from services.assessment_orchestrator import orchestrator
+from services.video_assessment_service import video_assessment_service
+
+# Video MIME types that the upload service accepts
+_VIDEO_EXTENSIONS = {".mp4", ".mov", ".webm"}
 
 router = APIRouter(prefix="/api", tags=["assessment"])
+
+
+def _is_video_key(image_key: str) -> bool:
+    """
+    Detect whether an S3 key points to a video file by its extension.
+
+    This mirrors the file extensions used during upload without importing
+    the upload_service MIME lookup (which needs the UploadFile object).
+    """
+    lower_key = image_key.lower()
+    return any(lower_key.endswith(ext) for ext in _VIDEO_EXTENSIONS)
 
 
 @router.post(
@@ -27,7 +44,9 @@ router = APIRouter(prefix="/api", tags=["assessment"])
     },
     summary="Run product assessment",
     description=(
-        "Submit a product image key and metadata to run the AI assessment pipeline. "
+        "Submit a product image (or video) key and metadata to run the AI assessment pipeline. "
+        "For videos, 3 representative frames are extracted and assessed; the worst condition "
+        "grade is used in the final result. "
         "Returns condition grade, action recommendation, resale value estimate, "
         "green credits, CO2 savings, and buyer personas."
     ),
@@ -42,17 +61,33 @@ async def assess_product(
     """
     Run the agentic assessment pipeline on a product.
 
-    Pipeline: Vision Agent → Valuation Agent → Decision Agent →
-              Sustainability Agent → Buyer Matching Agent
-    """
-    print(f"[ROUTE] POST /api/assess received: image_key={request.image_key}, session={x_session_id}")
+    Image pipeline: Vision Agent → Valuation Agent → Decision Agent →
+                    Sustainability Agent → Buyer Matching Agent
 
-    # Run the orchestrator pipeline (Vision Agent calls Bedrock)
+    Video pipeline: Frame Extractor (3 frames) → Vision Agent × 3 →
+                    Merge (worst grade wins) → remaining 4 agents
+    """
+    is_video = _is_video_key(request.image_key)
+    print(
+        f"[ROUTE] POST /api/assess received: image_key={request.image_key}, "
+        f"is_video={is_video}, session={x_session_id}"
+    )
+
+    # Run the appropriate pipeline
     try:
-        assessment = await orchestrator.run(request)
-        print(f"[ROUTE] Orchestrator returned: grade={assessment.condition_grade}, action={assessment.action_recommendation}")
+        if is_video:
+            print("[ROUTE] Routing to VideoAssessmentService...")
+            assessment = await video_assessment_service.assess(request)
+        else:
+            assessment = await orchestrator.run(request)
+
+        print(
+            f"[ROUTE] Assessment complete: grade={assessment.condition_grade}, "
+            f"action={assessment.action_recommendation}, "
+            f"video_note={assessment.video_note!r}"
+        )
     except RuntimeError as e:
-        print(f"[ROUTE] Orchestrator failed: {e}")
+        print(f"[ROUTE] Assessment pipeline failed: {e}")
         raise HTTPException(status_code=502, detail={"error": "assessment_failed", "message": str(e)})
 
     # Persist to DynamoDB

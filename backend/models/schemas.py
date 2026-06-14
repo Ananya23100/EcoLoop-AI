@@ -136,7 +136,7 @@ class ResaleValue(BaseModel):
 
     min: float = Field(..., description="Minimum estimated resale value in USD")
     max: float = Field(..., description="Maximum estimated resale value in USD")
-    display: str = Field(..., description="Human-readable price range", examples=["$142 - $192"])
+    display: str = Field(..., description="Human-readable price range", examples=["₹142 - ₹192"])
 
 
 class BuyerPersona(BaseModel):
@@ -168,6 +168,10 @@ class AssessmentResponse(BaseModel):
     buyer_personas: list[BuyerPersona] = Field(
         default_factory=list,
         description="Buyer personas (only for resell recommendations)",
+    )
+    video_note: str | None = Field(
+        default=None,
+        description="Present when assessment was generated from video frames",
     )
 
 
